@@ -1,13 +1,10 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-
-type User = {
-  id: string;
-  email: string | null;
-};
+import type { Session, User } from "@supabase/supabase-js";
 
 type AuthContextType = {
   user: User | null;
+  session: Session | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
@@ -17,33 +14,46 @@ type AuthContextType = {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Listen to auth changes
+  const user = session?.user ?? null;
+
   useEffect(() => {
-    const getSession = async () => {
-      const { data } = await supabase.auth.getSession();
-      setUser(data.session?.user ?? null);
-      setLoading(false);
-    };
+    let ignore = false;
 
-    getSession();
-
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+    supabase.auth.getSession().then(({ data }) => {
+      if (!ignore) {
+        setSession(data.session ?? null);
+        setLoading(false);
+      }
     });
 
-    return () => listener.subscription.unsubscribe();
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (_event, newSession) => {
+        setSession(newSession ?? null);
+      }
+    );
+
+    return () => {
+      ignore = true;
+      authListener.subscription.unsubscribe();
+    };
   }, []);
 
   const login = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
     if (error) throw error;
   };
 
   const register = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email, password });
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+    });
     if (error) throw error;
   };
 
@@ -52,7 +62,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        session,
+        loading,
+        login,
+        register,
+        logout,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
